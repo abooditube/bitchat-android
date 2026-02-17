@@ -11,12 +11,15 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -47,6 +50,13 @@ import com.bitchat.android.ui.media.FilePickerButton
 /**
  * Input components for ChatScreen
  * Extracted from ChatScreen.kt for better organization
+ * 
+ * Updated with WhatsApp-style design:
+ * - Rounded container background
+ * - Emoji button on left
+ * - Text field in center
+ * - Attachment and camera buttons
+ * - Mic/Send button that transforms
  */
 
 /**
@@ -155,10 +165,41 @@ class CombinedVisualTransformation(private val transformations: List<VisualTrans
     }
 }
 
+/**
+ * WhatsApp-style icon button with consistent styling
+ */
+@Composable
+fun WhatsAppIconButton(
+    onClick: () -> Unit,
+    icon: ImageVector,
+    contentDescription: String?,
+    tint: Color = Color.Gray,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.size(40.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = tint,
+            modifier = Modifier.size(24.dp)
+        )
+    }
+}
 
-
-
-
+/**
+ * WhatsApp-style message input with rounded container
+ * Features:
+ * - Rounded pill-shaped container background
+ * - Emoji icon on left (decorative)
+ * - Text input in center
+ * - Attachment and camera buttons on right (when empty)
+ * - Mic button that transforms to send button
+ */
 @Composable
 fun MessageInput(
     value: TextFieldValue,
@@ -174,190 +215,248 @@ fun MessageInput(
     modifier: Modifier = Modifier
 ) {
     val colorScheme = MaterialTheme.colorScheme
+    val isDarkTheme = colorScheme.background == Color.Black
     val isFocused = remember { mutableStateOf(false) }
-    val hasText = value.text.isNotBlank() // Check if there's text for send button state
+    val hasText = value.text.isNotBlank()
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
     var isRecording by remember { mutableStateOf(false) }
     var elapsedMs by remember { mutableStateOf(0L) }
     var amplitude by remember { mutableStateOf(0) }
+    var showAttachmentMenu by remember { mutableStateOf(false) }
 
-    Row(
-        modifier = modifier.padding(horizontal = 12.dp, vertical = 8.dp), // Reduced padding
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    // WhatsApp-style colors
+    val inputContainerColor = if (isDarkTheme) {
+        Color(0xFF2A2A2A) // Dark gray container
+    } else {
+        Color(0xFFF0F0F0) // Light gray container
+    }
+    
+    val textColor = if (isDarkTheme) {
+        Color.White
+    } else {
+        Color(0xFF1F1F1F)
+    }
+    
+    val hintColor = if (isDarkTheme) {
+        Color(0xFF8E8E93)
+    } else {
+        Color(0xFF8E8E93)
+    }
+    
+    val iconColor = if (isDarkTheme) {
+        Color(0xFF8E8E93)
+    } else {
+        Color(0xFF606060)
+    }
+    
+    val sendButtonColor = if (selectedPrivatePeer != null || currentChannel != null) {
+        Color(0xFFFF9500) // Orange for private/channel
+    } else {
+        Color(0xFF25D366) // WhatsApp green
+    }
+
+    // Main container with WhatsApp-style padding
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
-        // Text input with placeholder OR visualizer when recording
-        Box(
-            modifier = Modifier.weight(1f)
-        ) {
-            // Always keep the text field mounted to retain focus and avoid IME collapse
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(
-                    color = colorScheme.primary,
-                    fontFamily = FontFamily.Monospace
-                ),
-                cursorBrush = SolidColor(if (isRecording) Color.Transparent else colorScheme.primary),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                keyboardActions = KeyboardActions(onSend = { 
-                    if (hasText) onSend() // Only send if there's text
-                }),
-                visualTransformation = CombinedVisualTransformation(
-                    listOf(SlashCommandVisualTransformation(), MentionVisualTransformation())
-                ),
+        // Recording indicator above input (WhatsApp style)
+        if (isRecording) {
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { focusState ->
-                        isFocused.value = focusState.isFocused
-                    }
-            )
-
-            // Show placeholder when there's no text and not recording
-            if (value.text.isEmpty() && !isRecording) {
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RealtimeScrollingWaveform(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(32.dp),
+                    amplitudeNorm = normalizeAmplitudeSample(amplitude)
+                )
+                Spacer(Modifier.width(12.dp))
+                val secs = (elapsedMs / 1000).toInt()
+                val mm = secs / 60
+                val ss = secs % 60
+                val maxSecs = 10
+                val maxMm = maxSecs / 60
+                val maxSs = maxSecs % 60
                 Text(
-                    text = stringResource(R.string.type_a_message_placeholder),
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = FontFamily.Monospace
-                    ),
-                    color = colorScheme.onSurface.copy(alpha = 0.5f), // Muted grey
-                    modifier = Modifier.fillMaxWidth()
+                    text = String.format("%02d:%02d / %02d:%02d", mm, ss, maxMm, maxSs),
+                    fontFamily = FontFamily.Monospace,
+                    color = colorScheme.primary,
+                    fontSize = (BASE_FONT_SIZE - 4).sp
                 )
             }
-
-            // Overlay the real-time scrolling waveform while recording
-            if (isRecording) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    RealtimeScrollingWaveform(
-                        modifier = Modifier.weight(1f).height(32.dp),
-                        amplitudeNorm = normalizeAmplitudeSample(amplitude)
-                    )
-                    Spacer(Modifier.width(20.dp))
-                    val secs = (elapsedMs / 1000).toInt()
-                    val mm = secs / 60
-                    val ss = secs % 60
-                    val maxSecs = 10 // 10 second max recording time
-                    val maxMm = maxSecs / 60
-                    val maxSs = maxSecs % 60
-                    Text(
-                        text = String.format("%02d:%02d / %02d:%02d", mm, ss, maxMm, maxSs),
-                        fontFamily = FontFamily.Monospace,
-                        color = colorScheme.primary,
-                        fontSize = (BASE_FONT_SIZE - 4).sp
-                    )
-                }
-            }
         }
-        
-        Spacer(modifier = Modifier.width(8.dp)) // Reduced spacing
-        
-        // Voice and image buttons when no text (only visible in Mesh chat)
-        if (value.text.isEmpty() && showMediaButtons) {
-            // Hold-to-record microphone
-            val bg = if (colorScheme.background == Color.Black) Color(0xFF00FF00).copy(alpha = 0.75f) else Color(0xFF008000).copy(alpha = 0.75f)
 
-            // Ensure latest values are used when finishing recording
-            val latestSelectedPeer = rememberUpdatedState(selectedPrivatePeer)
-            val latestChannel = rememberUpdatedState(currentChannel)
-            val latestOnSendVoiceNote = rememberUpdatedState(onSendVoiceNote)
-
-            // Image button (image picker) - hide during recording
-            if (!isRecording) {
-                // Revert to original separate buttons: round File button (left) and the old Image plus button (right)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    // DISABLE FILE PICKER
-                    //FilePickerButton(
-                    //    onFileReady = { path ->
-                    //        onSendFileNote(latestSelectedPeer.value, latestChannel.value, path)
-                    //    }
-                    //)
-                    ImagePickerButton(
-                        onImageReady = { outPath ->
-                            onSendImageNote(latestSelectedPeer.value, latestChannel.value, outPath)
-                        }
+        // WhatsApp-style input row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            // Rounded input container (WhatsApp style)
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(24.dp),
+                color = inputContainerColor
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Emoji icon (left side) - decorative
+                    Icon(
+                        imageVector = Icons.Outlined.EmojiEmotions,
+                        contentDescription = stringResource(R.string.emoji),
+                        tint = iconColor,
+                        modifier = Modifier
+                            .size(28.dp)
+                            .padding(2.dp)
                     )
+
+                    // Text input field
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(horizontal = 4.dp, vertical = 8.dp)
+                    ) {
+                        BasicTextField(
+                            value = value,
+                            onValueChange = onValueChange,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = textColor,
+                                fontFamily = FontFamily.Default
+                            ),
+                            cursorBrush = SolidColor(if (isRecording) Color.Transparent else colorScheme.primary),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                            keyboardActions = KeyboardActions(onSend = {
+                                if (hasText) onSend()
+                            }),
+                            visualTransformation = CombinedVisualTransformation(
+                                listOf(SlashCommandVisualTransformation(), MentionVisualTransformation())
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { focusState ->
+                                    isFocused.value = focusState.isFocused
+                                }
+                        )
+
+                        // Placeholder text
+                        if (value.text.isEmpty() && !isRecording) {
+                            Text(
+                                text = stringResource(R.string.type_a_message_placeholder),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = hintColor,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    // Attachment and camera buttons (right side, inside container)
+                    if (value.text.isEmpty() && showMediaButtons && !isRecording) {
+                        // Attachment button
+                        Icon(
+                            imageVector = Icons.Outlined.AttachFile,
+                            contentDescription = stringResource(R.string.attach_file),
+                            tint = iconColor,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .padding(2.dp)
+                                .clickable {
+                                    // Show image picker
+                                    onSendImageNote(selectedPrivatePeer, currentChannel, "")
+                                }
+                        )
+                        
+                        Spacer(modifier = Modifier.width(4.dp))
+                        
+                        // Camera button
+                        Icon(
+                            imageVector = Icons.Outlined.CameraAlt,
+                            contentDescription = stringResource(R.string.camera),
+                            tint = iconColor,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .padding(2.dp)
+                                .clickable {
+                                    // Show image picker
+                                    onSendImageNote(selectedPrivatePeer, currentChannel, "")
+                                }
+                        )
+                    }
                 }
             }
 
-            Spacer(Modifier.width(1.dp))
+            // Send/Mic button (outside container, WhatsApp style)
+            Spacer(modifier = Modifier.width(4.dp))
 
-            VoiceRecordButton(
-                backgroundColor = bg,
-                onStart = {
-                    isRecording = true
-                    elapsedMs = 0L
-                    // Keep existing focus to avoid IME collapse, but do not force-show keyboard
-                    if (isFocused.value) {
-                        try { focusRequester.requestFocus() } catch (_: Exception) {}
-                    }
-                },
-                onAmplitude = { amp, ms ->
-                    amplitude = amp
-                    elapsedMs = ms
-                },
-                onFinish = { path ->
-                    isRecording = false
-                    // Extract and cache waveform from the actual audio file to match receiver rendering
-                    AudioWaveformExtractor.extractAsync(path, sampleCount = 120) { arr ->
-                        if (arr != null) {
-                            try { com.bitchat.android.features.voice.VoiceWaveformCache.put(path, arr) } catch (_: Exception) {}
-                        }
-                    }
-                    // BLE path (private or public) — use latest values to avoid stale captures
-                    latestOnSendVoiceNote.value(
-                        latestSelectedPeer.value,
-                        latestChannel.value,
-                        path
+            if (hasText) {
+                // Send button (WhatsApp green circular button)
+                FloatingActionButton(
+                    onClick = { onSend() },
+                    modifier = Modifier.size(48.dp),
+                    shape = CircleShape,
+                    containerColor = sendButtonColor,
+                    elevation = FloatingActionButtonDefaults.elevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp
                     )
-                }
-            )
-            
-        } else {
-            // Send button with enabled/disabled state
-            IconButton(
-                onClick = { if (hasText) onSend() }, // Only execute if there's text
-                enabled = hasText, // Enable only when there's text
-                modifier = Modifier.size(32.dp)
-            ) {
-                // Update send button to match input field colors
-                Box(
-                    modifier = Modifier
-                        .size(30.dp)
-                        .background(
-                            color = if (!hasText) {
-                                // Disabled state - muted grey
-                                colorScheme.onSurface.copy(alpha = 0.3f)
-                            } else if (selectedPrivatePeer != null || currentChannel != null) {
-                                // Orange for both private messages and channels when enabled
-                                Color(0xFFFF9500).copy(alpha = 0.75f)
-                            } else if (colorScheme.background == Color.Black) {
-                                Color(0xFF00FF00).copy(alpha = 0.75f) // Bright green for dark theme
-                            } else {
-                                Color(0xFF008000).copy(alpha = 0.75f) // Dark green for light theme
-                            },
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.ArrowUpward,
-                        contentDescription = stringResource(id = R.string.send_message),
-                        modifier = Modifier.size(20.dp),
-                        tint = if (!hasText) {
-                            // Disabled state - muted grey icon
-                            colorScheme.onSurface.copy(alpha = 0.5f)
-                        } else if (selectedPrivatePeer != null || currentChannel != null) {
-                            // Black arrow on orange for both private and channel modes
-                            Color.Black
-                        } else if (colorScheme.background == Color.Black) {
-                            Color.Black // Black arrow on bright green in dark theme
-                        } else {
-                            Color.White // White arrow on dark green in light theme
-                        }
+                        imageVector = Icons.Filled.Send,
+                        contentDescription = stringResource(R.string.send_message),
+                        tint = Color.White,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
+            } else if (showMediaButtons) {
+                // Mic button (WhatsApp style)
+                val bg = if (isDarkTheme) {
+                    Color(0xFF25D366).copy(alpha = 0.9f)
+                } else {
+                    Color(0xFF25D366).copy(alpha = 0.9f)
+                }
+
+                // Ensure latest values are used when finishing recording
+                val latestSelectedPeer = rememberUpdatedState(selectedPrivatePeer)
+                val latestChannel = rememberUpdatedState(currentChannel)
+                val latestOnSendVoiceNote = rememberUpdatedState(onSendVoiceNote)
+
+                VoiceRecordButton(
+                    backgroundColor = bg,
+                    onStart = {
+                        isRecording = true
+                        elapsedMs = 0L
+                        if (isFocused.value) {
+                            try { focusRequester.requestFocus() } catch (_: Exception) {}
+                        }
+                    },
+                    onAmplitude = { amp, ms ->
+                        amplitude = amp
+                        elapsedMs = ms
+                    },
+                    onFinish = { path ->
+                        isRecording = false
+                        AudioWaveformExtractor.extractAsync(path, sampleCount = 120) { arr ->
+                            if (arr != null) {
+                                try { com.bitchat.android.features.voice.VoiceWaveformCache.put(path, arr) } catch (_: Exception) {}
+                            }
+                        }
+                        latestOnSendVoiceNote.value(
+                            latestSelectedPeer.value,
+                            latestChannel.value,
+                            path
+                        )
+                    }
+                )
             }
         }
     }

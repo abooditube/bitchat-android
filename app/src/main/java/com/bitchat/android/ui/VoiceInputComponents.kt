@@ -56,7 +56,7 @@ fun VoiceRecordButton(
 
     Box(
         modifier = modifier
-            .size(32.dp)
+            .size(48.dp)
             .background(backgroundColor, CircleShape)
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -131,8 +131,8 @@ fun VoiceRecordButton(
         Icon(
             imageVector = Icons.Filled.Mic,
             contentDescription = stringResource(com.bitchat.android.R.string.cd_record_voice),
-            tint = Color.Black,
-            modifier = Modifier.size(20.dp)
+            tint = Color.White,
+            modifier = Modifier.size(24.dp)
         )
     }
 }
